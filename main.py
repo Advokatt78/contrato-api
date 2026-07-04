@@ -1,6 +1,6 @@
 """
-# Updated: 2026-07-04T18:50:00
-Analizador de Contratos Inmobiliarios — Backend API
+# Updated: 2026-07-04T19:00:00 — v3 Due Diligence Completa
+Analizador de Due Diligence Inmobiliaria — Backend API
 Para colasjurist.se | Hugo Gutiérrez Colás, Abogado nr 6.539 ICALI
 """
 from fastapi import FastAPI, HTTPException
@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from typing import Optional
 import httpx, json, os
 
-app = FastAPI(title="Contrato Analyzer API", version="2.0.0")
+app = FastAPI(title="Due Diligence Inmobiliaria API", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -23,240 +23,384 @@ ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 # ── Models ─────────────────────────────────────────────────────────────────────
 
 class PropertyContext(BaseModel):
+    # Basic property data
     precio: Optional[float] = None
     municipio: Optional[str] = None
     tipo: Optional[str] = None          # segunda-mano | obra-nueva | rustico
     vendedor: Optional[str] = None      # particular | empresa | banco | promotor
-    comprador_residente: Optional[str] = None  # si | no
+    comprador_residente: Optional[str] = None
     hipoteca_comprador: Optional[bool] = None
-    cargas: Optional[str] = None        # ninguna | hipoteca | embargo | usufructo | unknown
-    superficie_catastro: Optional[float] = None
+
+    # Registry (Registro de la Propiedad)
+    cargas: Optional[str] = None        # ninguna | hipoteca | embargo | usufructo | servidumbre | otros | unknown
+    titularidad: Optional[str] = None   # 1 | 2 | 3+ | empresa
     superficie_registro: Optional[float] = None
+    superficie_parcela_registro: Optional[float] = None
+    anno_construccion_registro: Optional[int] = None
+    obra_nueva_inscrita: Optional[bool] = None
+    division_horizontal: Optional[bool] = None
+    cuota_participacion: Optional[float] = None
+
+    # Catastro
+    superficie_catastro: Optional[float] = None
+    superficie_parcela_catastro: Optional[float] = None
+    anno_construccion_catastro: Optional[int] = None
     piscina_catastro: Optional[bool] = None
+    garaje_catastro: Optional[bool] = None
+    trastero_catastro: Optional[bool] = None
     obras_no_declaradas: Optional[bool] = None
+    valor_referencia: Optional[float] = None
+    valor_catastral: Optional[float] = None
+
+    # Urban planning
     zona_costera: Optional[bool] = None
     tipo_suelo: Optional[str] = None    # urbano | no-urbanizable | urbanizable
-    valor_referencia: Optional[float] = None
-    comunidad: Optional[str] = None     # si | no
-    # Contract-level questionnaire (when no full text)
+    tiene_licencia_primera_ocupacion: Optional[str] = None  # si | no | unknown
+    expediente_urbanistico: Optional[str] = None  # si | no | unknown
+
+    # Community
+    comunidad: Optional[bool] = None
+    certificado_deuda_comunidad: Optional[str] = None  # si | no | pending
+    actas_comunidad: Optional[str] = None
+    derramas_pendientes: Optional[str] = None  # si | no | unknown
+    alquiler_turistico_permitido: Optional[str] = None  # si | no | unknown
+
+    # Fiscal
+    ibi_al_corriente: Optional[str] = None  # si | no | unknown
+    vendedor_no_residente: Optional[str] = None  # si | no | unknown
+    precio_negro: Optional[bool] = None
+
+    # Contract fields
+    tipo_contrato: Optional[str] = None  # reserva | arras | privado | ninguno
     tiene_arras: Optional[str] = None
     tipo_arras: Optional[str] = None    # penitenciales | confirmatorias | desconocido
-    penalizacion_comprador: Optional[float] = None  # € amount
-    penalizacion_vendedor: Optional[str] = None     # doble | otro
+    importe_senyal: Optional[float] = None
+    penalizacion_comprador: Optional[float] = None
+    penalizacion_vendedor: Optional[str] = None
     condicion_financiacion: Optional[bool] = None
     clausula_cargas: Optional[bool] = None
     clausula_ocupantes: Optional[bool] = None
     clausula_ibi: Optional[bool] = None
     clausula_comunidad: Optional[bool] = None
     clausula_cancelacion_hipoteca: Optional[bool] = None
+    clausula_retencion_3pct: Optional[bool] = None
+    clausula_plusvalia: Optional[str] = None  # vendedor | comprador | no
     plazo_escritura_dias: Optional[int] = None
-    precio_negro: Optional[bool] = None
+
+    # Documentation provided by user
+    documentos_aportados: Optional[list[str]] = None  # list of doc types provided
+
 
 class ContractRequest(BaseModel):
-    contract_text: Optional[str] = None   # full text pasted by user
+    contract_text: Optional[str] = None
     property_context: Optional[PropertyContext] = None
-    language: str = "sv"  # sv | es | en
-    mode: str = "public"  # public | internal
+    language: str = "sv"
+    mode: str = "public"
+
 
 class AlertItem(BaseModel):
-    level: str   # red | orange | yellow | green
-    category: str
+    level: str          # red | orange | yellow | green
+    category: str       # registral | catastral | urbanismo | comunidad | fiscal | contrato | posesion | licencias | costas | otro
     title: str
     body: str
-    clause: Optional[str] = None  # recommended clause text in Spanish legalese
-    documents: Optional[list[str]] = None  # documents buyer should request
+    clause: Optional[str] = None
+    documents: Optional[list[str]] = None
+    actuacion_previa: Optional[str] = None   # what must be done BEFORE signing
+    quien_asume: Optional[str] = None        # vendedor | comprador | ambos
     action: Optional[str] = None
 
-class ContractAnalysis(BaseModel):
-    score: int           # 0-100
-    risk_level: str      # low | medium | high | critical
-    alerts: list[AlertItem]
-    missing_clauses: list[str]
-    dangerous_clauses: list[str]
-    recommended_actions: list[str]
-    documents_to_request: list[str]   # NEW: master list of all docs to request
+
+class DueDiligenceReport(BaseModel):
+    # Scoring
+    score: int
+    risk_level: str     # low | medium | high | critical
+    clasificacion_final: str  # puede_firmarse | puede_firmarse_con_modificaciones | no_deberia_firmarse
+
+    # Executive summary
     summary: str
 
-# ── Prompt ─────────────────────────────────────────────────────────────────────
+    # Alerts by category
+    alerts: list[AlertItem]
+
+    # Structured report sections
+    documentacion_aportada: list[str]
+    documentacion_pendiente: list[str]
+    missing_clauses: list[str]
+    dangerous_clauses: list[str]
+    actuaciones_previas_imprescindibles: list[str]
+    actuaciones_recomendadas: list[str]
+    clausulas_adicionales_recomendadas: list[str]
+    recommended_actions: list[str]
+    documents_to_request: list[str]
+
+    # Checklists
+    checklist_antes_de_firmar: list[str]
+    checklist_antes_de_escritura: list[str]
+
+    # Follow-up questions (dynamic)
+    preguntas_adicionales: list[str]
+
+
+# ── Master Due Diligence Prompt ─────────────────────────────────────────────────
 
 def build_prompt(req: ContractRequest) -> str:
     lang_instruction = {
-        "sv": "Respond entirely in Swedish (svenska). Use natural Swedish legal terminology. Clause text must remain in Spanish (it is contract language).",
-        "es": "Responde completamente en español. Usa terminología jurídica española. El texto de las cláusulas debe estar en español.",
-        "en": "Respond entirely in English. Use Spanish legal terms with English explanations. Clause text must remain in Spanish."
+        "sv": "LANGUAGE: Respond entirely in Swedish (svenska). Use natural Swedish legal terminology. Exception: clause texts must remain in Spanish legal language.",
+        "es": "LANGUAGE: Responde completamente en español. Usa terminología jurídica española. Los textos de cláusulas en español.",
+        "en": "LANGUAGE: Respond entirely in English. Use Spanish legal terms with English explanations. Clause texts in Spanish."
     }.get(req.language, "Respond in Swedish.")
 
     ctx = req.property_context or PropertyContext()
 
+    docs_aportados = ctx.documentos_aportados or []
+    docs_str = ", ".join(docs_aportados) if docs_aportados else "ninguno declarado"
+
     context_block = f"""
-PROPERTY CONTEXT (from prior analysis steps):
+=== PROPERTY DATA (from prior analysis steps) ===
+
+BASIC:
 - Purchase price: {ctx.precio or 'unknown'} €
 - Municipality: {ctx.municipio or 'unknown'}
-- Property type: {ctx.tipo or 'unknown'}  (segunda-mano=resale, obra-nueva=new build, rustico=rural)
-- Seller type: {ctx.vendedor or 'unknown'}  (particular=private, empresa=company, banco=bank, promotor=developer)
+- Property type: {ctx.tipo or 'unknown'}  (segunda-mano=resale | obra-nueva=new build | rustico=rural)
+- Seller type: {ctx.vendedor or 'unknown'}  (particular | empresa | banco | promotor)
 - Buyer resident in Spain: {ctx.comprador_residente or 'unknown'}
 - Buyer needs mortgage: {ctx.hipoteca_comprador}
-- Registered charges (Registro de la Propiedad): {ctx.cargas or 'none declared'}
-- Catastro surface: {ctx.superficie_catastro or 0} m²
-- Registry surface: {ctx.superficie_registro or 0} m²
-- Pool registered in Catastro: {ctx.piscina_catastro}
-- Undeclared works detected (Catastro vs Registry discrepancy): {ctx.obras_no_declaradas}
-- Coastal zone (Ley de Costas risk): {ctx.zona_costera}
+
+REGISTRY (Registro de la Propiedad):
+- Registered charges: {ctx.cargas or 'unknown'}
+- Ownership: {ctx.titularidad or 'unknown'}
+- Registry built area: {ctx.superficie_registro or 0} m²
+- Registry plot area: {ctx.superficie_parcela_registro or 0} m²
+- Year of construction (registry): {ctx.anno_construccion_registro or 'unknown'}
+- Obra nueva inscrita: {ctx.obra_nueva_inscrita}
+- División horizontal (community): {ctx.division_horizontal}
+- Participation coefficient: {ctx.cuota_participacion or 'unknown'} %
+
+CATASTRO:
+- Catastro built area: {ctx.superficie_catastro or 0} m²
+- Catastro plot area: {ctx.superficie_parcela_catastro or 0} m²
+- Year of construction (catastro): {ctx.anno_construccion_catastro or 'unknown'}
+- Pool in Catastro: {ctx.piscina_catastro}
+- Garage in Catastro: {ctx.garaje_catastro}
+- Storage room in Catastro: {ctx.trastero_catastro}
+- Undeclared works detected: {ctx.obras_no_declaradas}
+- Valor de referencia catastral: {ctx.valor_referencia or 0} €
+- Valor catastral: {ctx.valor_catastral or 0} €
+
+URBAN PLANNING:
+- Coastal zone (Ley de Costas): {ctx.zona_costera}
 - Land classification: {ctx.tipo_suelo or 'urbano'}
-- Valor de referencia catastral (AEAT reference value): {ctx.valor_referencia or 0} €
-- Community of owners (comunidad de propietarios): {ctx.comunidad or 'unknown'}
+- First occupation licence (LPO): {ctx.tiene_licencia_primera_ocupacion or 'unknown'}
+- Urban infraction expedient: {ctx.expediente_urbanistico or 'unknown'}
+
+COMMUNITY (Propiedad Horizontal):
+- Part of community: {ctx.comunidad}
+- Community debt certificate: {ctx.certificado_deuda_comunidad or 'not provided'}
+- Community minutes (actas): {ctx.actas_comunidad or 'not provided'}
+- Pending special levies (derramas): {ctx.derramas_pendientes or 'unknown'}
+- Tourist rental permitted: {ctx.alquiler_turistico_permitido or 'unknown'}
+
+FISCAL:
+- IBI up to date: {ctx.ibi_al_corriente or 'unknown'}
+- Non-resident seller: {ctx.vendedor_no_residente or 'unknown'}
+- Below-market price (possible precio negro): {ctx.precio_negro}
+
+CONTRACT:
+- Contract type: {ctx.tipo_contrato or 'unknown'}
+- Arras clause: {ctx.tiene_arras or 'unknown'}
+- Type of arras: {ctx.tipo_arras or 'unknown'}
+- Deposit paid: {ctx.importe_senyal or 0} €
+- Buyer penalty if backs out: {ctx.penalizacion_comprador or 0} €
+- Seller penalty: {ctx.penalizacion_vendedor or 'unknown'}
+- Financing condition clause: {ctx.condicion_financiacion}
+- Charges cancellation clause: {ctx.clausula_cargas}
+- Free of occupants clause: {ctx.clausula_ocupantes}
+- IBI clause: {ctx.clausula_ibi}
+- Community certificate clause: {ctx.clausula_comunidad}
+- Mortgage cancellation clause: {ctx.clausula_cancelacion_hipoteca}
+- 3% non-resident retention clause: {ctx.clausula_retencion_3pct}
+- Plusvalía clause: {ctx.clausula_plusvalia or 'unknown'}
+- Days until escritura: {ctx.plazo_escritura_dias or 'unknown'}
+
+DOCUMENTS PROVIDED BY USER: {docs_str}
 """
 
     contract_block = ""
     if req.contract_text and len(req.contract_text.strip()) > 50:
         contract_block = f"""
-CONTRACT TEXT (pasted by user — analyze every clause):
+=== CONTRACT TEXT (analyze every clause) ===
 ---
 {req.contract_text[:7000]}
 ---
 """
-    else:
-        q = ctx
-        contract_block = f"""
-CONTRACT QUESTIONNAIRE (no full text — analyze based on answers):
-- Has arras (deposit) clause: {q.tiene_arras}
-- Type of arras: {q.tipo_arras}  (penitenciales=either party can exit paying penalty; confirmatorias=no exit right)
-- Buyer penalty if backs out: {q.penalizacion_comprador} €
-- Seller penalty if backs out: {q.penalizacion_vendedor}  (doble=double the deposit returned)
-- Financing condition (condición suspensiva de financiación): {q.condicion_financiacion}
-- Charges/cargas cancellation clause present: {q.clausula_cargas}
-- Free of occupants clause (libre de ocupantes): {q.clausula_ocupantes}
-- IBI (annual property tax) settlement clause: {q.clausula_ibi}
-- Community certificate clause (certificado de comunidad): {q.clausula_comunidad}
-- Mortgage cancellation clause: {q.clausula_cancelacion_hipoteca}
-- Days until escritura (notarial deed): {q.plazo_escritura_dias}
-- Below-market price (possible black money / precio negro): {q.precio_negro}
-"""
 
-    return f"""You are a senior Spanish real estate lawyer (Abogado) with 19 years of experience in Costa Blanca, specializing in property transactions for Swedish buyers. You work for Colás Jurist (Hugo Gutiérrez Colás, Abogado nr 6.539 ICALI, colasjurist.se).
+    return f"""You are Hugo Gutiérrez Colás, Abogado español colegiado nr 6.539 ICALI, with 19 years of experience in real estate law on Costa Blanca, Spain. You work through Colás Jurist (colasjurist.se) and specialize in protecting Swedish buyers in Spanish property transactions.
 
 {lang_instruction}
 
 {context_block}
 {contract_block}
 
-YOUR TASK: Produce a thorough, actionable contract analysis covering:
-1. DANGEROUS clauses that put the buyer at risk
-2. MISSING protective clauses that must be added before signing
-3. SPECIFIC DOCUMENTS the buyer must request before or at signing
-4. RECOMMENDED clause text for each red/orange issue (in Spanish legal language)
-5. CROSS-REFERENCING: correlate contract clauses with property data from prior steps
+=== YOUR MISSION ===
 
-MANDATORY SITUATIONAL RULES — apply ALL that match the data:
+You are performing a COMPLETE REAL ESTATE DUE DILIGENCE. Your job is NOT to summarize documents — your job is to determine whether this transaction is LEGALLY SAFE TO PROCEED.
 
-### MORTGAGE / CHARGES (cargas: hipoteca or embargo)
-- If there is a registered hipoteca or embargo: FLAG as RED — buyer must demand:
-  (a) "Certificado de deuda pendiente" from the lender showing exact outstanding balance
-  (b) A retention clause (retención) in the contract: seller authorises buyer to withhold from purchase price the amount needed to cancel the mortgage at escritura
-  (c) "Condición de cancelación registral previa a la escritura" — mortgage must be cancelled in Registro before or simultaneously with deed
-- Recommended retention clause: "El comprador retendrá de la cantidad a entregar en escritura el importe necesario para la cancelación de la hipoteca que grava la finca, cuyo saldo será acreditado mediante certificado de deuda emitido por la entidad acreedora con una antelación máxima de 10 días hábiles a la fecha de otorgamiento de la escritura pública de compraventa."
+The constant question you must ask yourself: "What is missing that would allow me to confirm this purchase is legally safe?"
 
-### UNDECLARED WORKS / OBRA NUEVA NO DECLARADA
-- If obras_no_declaradas is True OR catastro surface ≠ registry surface significantly:
-  FLAG as RED — buyer must demand:
-  (a) Seller legalises all works before escritura (declaración de obra nueva)
-  (b) OR: price reduction + retention to cover estimated cost of legalisation
-  (c) Document: "Nota simple actualizada del Registro de la Propiedad" + "Consulta descriptiva y gráfica del Catastro"
-- Recommended clause: "El vendedor se obliga a declarar ante Notario la obra nueva correspondiente a [descripción] antes de la firma de la escritura pública de compraventa, siendo dicho trámite condición esencial del presente contrato. En caso de incumplimiento, el comprador podrá resolver el contrato con devolución del doble de las arras entregadas."
+You must reason and act EXACTLY like an expert real estate lawyer — detecting not only what appears in the data, but above all what is ABSENT and what needs to be verified or obtained before recommending the transaction.
 
-### POTENTIAL URBAN INFRACTIONS
-- If tipo_suelo is 'no-urbanizable' or 'rustico', or zona_costera is True, or obras_no_declaradas:
-  FLAG as ORANGE — buyer must request:
-  (a) "Certificado de no infracción urbanística" from the Ayuntamiento
-  (b) "Certificado de antigüedad" if applicable (to check prescription period)
-  (c) Check whether constructions are inside "zona de servidumbre de costas" (100m from shore)
-- Recommended clause: "El vendedor garantiza que la finca y todas las construcciones existentes en ella no son objeto de expediente de infracción urbanística, disciplina urbanística o procedimiento de demolición, comprometiéndose a aportar certificado del Ayuntamiento acreditativo de dicha circunstancia antes de la firma de escritura pública."
+Never assume that the documentation provided is sufficient.
+Never finalize the analysis while relevant aspects remain unverified.
+Always propose the legal solution for every risk you identify.
+Always draft specific clause text for every contractual gap.
 
-### SELLER IS NON-RESIDENT (vendedor no residente)
-- If seller is non-resident (indicated by: empresa extranjera, or flag in contract):
-  FLAG as RED — buyer MUST withhold 3% of purchase price and pay to AEAT via Modelo 211 within 30 days
-- Recommended clause: "En cumplimiento del art. 25.2 LIRNR, el comprador retendrá el 3% del precio pactado ([amount] €) e ingresará dicho importe en la Agencia Tributaria mediante Modelo 211 en el plazo de un mes desde la escritura."
+=== MANDATORY ANALYSIS AREAS ===
 
-### PRICE BELOW VALOR DE REFERENCIA (precio negro risk)
-- If precio < valor_referencia (both known):
-  FLAG as RED — AEAT will tax buyer on valor_referencia, not purchase price → hidden extra tax
-  FLAG if precio_negro is True → potential criminal liability for buyer
+**1. REGISTRO DE LA PROPIEDAD**
+Check: ownership (titularity), ownership percentages, mortgages, embargos, condiciones resolutorias, usufructos, servidumbres, anotaciones preventivas, afecciones fiscales, limitaciones, prohibiciones de disponer, registered description, surface area, obra nueva inscrita, división horizontal, community quotas.
+For ANY registered charge: state risk + consequences + additional documents needed + prior action required + who must assume it + recommended contract clause.
 
-### ARRAS PENITENCIALES — ASYMMETRIC PENALTIES
-- If tipo_arras = 'penitenciales' AND (penalizacion_vendedor = null or != 'doble'):
-  FLAG as RED — contract is asymmetric: buyer loses deposit if backs out, but seller has no equivalent deterrent
-- If penalizacion_comprador > 10% of precio: FLAG as ORANGE — penalty is unusually high
+**2. CATASTRO**
+Check: reference, use classification, surface area, constructions, pools, garages, annexes, year, valor catastral, differences vs Registry.
+If discrepancies exist: explain ALL legal consequences, request necessary documentation, propose corrective action. Flag: undeclared pools, terraces, extensions, garages, porches, pergolas, auxiliary constructions.
 
-### FINANCING CONDITION MISSING
-- If condicion_financiacion is False or null AND hipoteca_comprador is True:
-  FLAG as RED — buyer will lose deposit if bank refuses mortgage
-- Recommended clause: "La presente compraventa queda sujeta a la condición suspensiva de obtención de financiación hipotecaria por parte del comprador por un importe mínimo de [amount] € en un plazo máximo de [X] días desde la firma del presente contrato. De no obtenerse dicha financiación en el plazo indicado, el contrato quedará resuelto sin penalización para ninguna de las partes, con devolución íntegra de las cantidades entregadas."
+**3. URBANISMO / URBAN PLANNING**
+Detect: unlicensed works, unregistered extensions, change of use, fuera de ordenación status, demolition risk, urban infraction expedients. For rural/rústico land: very high alert — dwelling on rústico land typically illegal in Comunitat Valenciana.
+Always specify: what risks exist, what actions must be taken, who bears cost, what clauses to add.
 
-### FREE OF OCCUPANTS
-- If clausula_ocupantes is False or null:
-  FLAG as ORANGE — without this clause, buyer cannot force seller to ensure property is vacant at escritura
-- Recommended clause: "El vendedor garantiza que la finca objeto de la presente compraventa se entregará libre de cargas, gravámenes, arrendatarios y ocupantes de cualquier tipo en la fecha de otorgamiento de la escritura pública, siendo el incumplimiento de esta obligación causa de resolución del contrato con devolución del doble de las arras."
+**4. LEY DE COSTAS**
+If coastal zone indicated OR property near coast: MANDATORY questions about deslinde, servidumbre de protección (0-100m), servidumbre de tránsito, concesión administrativa, pending expedients. Explain consequences fully.
 
-### IBI & COMMUNITY EXPENSES
-- If clausula_ibi is False: FLAG as YELLOW — buyer may inherit IBI debt from prior years (up to 4 years)
-  Document to request: "Recibo del IBI del año en curso" + "Certificado de estar al corriente de pago"
-- If clausula_comunidad is False: FLAG as YELLOW — buyer may inherit community fee debts
-  Document to request: "Certificado de deuda de la comunidad de propietarios" (obligatorio por ley)
+**5. HIPOTECAS Y EMBARGOS**
+If mortgage exists: Is it economically cancelled? Registrally cancelled? Who cancels? Before or simultaneous with escritura? Recommend: retention clause, simultaneous cancellation, outstanding balance certificate.
+If embargo: risk level, purchase viability, cancellation necessity, creditor intervention, required clauses.
 
-### SHORT DEADLINE TO ESCRITURA
-- If plazo_escritura_dias < 30: FLAG as ORANGE — insufficient time for searches, mortgage, legalisation
+**6. PROPIEDAD HORIZONTAL (if applicable)**
+MANDATORY questions if community property — flag as missing if not provided:
+- Community debt certificate (certificado de deuda)
+- Last 3 sets of minutes (actas)
+- Community statutes (estatutos)
+- Internal regulations (normas internas)
+- Approved special levies (derramas aprobadas)
+- Planned works
+- Litigation
+- Defaulting owners
+- Tourist rental permission
+- Statutory restrictions
+- Rehabilitation plans
+- Judicial claims
 
-### NEW BUILD (obra nueva)
-- If tipo = 'obra-nueva': FLAG as mandatory checks:
-  (a) "Seguro decenal" (10-year structural insurance) — must be delivered at escritura
-  (b) "Licencia de primera ocupación" (LPO) — must exist before escritura
-  (c) "Certificado de fin de obra" signed by architect
-  (d) IVA 10% + AJD 1.5% (not ITP) — buyer must understand tax structure
+**7. FISCALIDAD**
+Check: ITP vs IVA+AJD (correct tax regime), plusvalía municipal (who pays), 3% non-resident retention (Modelo 211), IBI settlement, basura (waste tax). Flag any fiscal risk.
 
-SCORING: Start at 100. Deduct:
-- 25 per RED alert (critical — must fix before signing)
+**8. CONTRACT ANALYSIS**
+Classify contract type. Detect: abusive clauses, dangerous clauses, missing clauses, insufficient deadlines, incorrect expense distribution, missing suspensive conditions, missing charges clauses, missing urbanistic clauses, missing community clauses, missing fiscal clauses, missing occupant regulation, missing utilities regulation, missing furniture regulation, missing mortgage cancellation regulation, missing embargo cancellation, missing licence regulation.
+
+**9. SITUACIÓN POSESORIA**
+Is the property occupied? By whom? Tenants? Squatters? When will it be vacated? What is the legal title of the occupant?
+
+**10. LICENCIAS**
+For new builds: seguro decenal, licencia de primera ocupación, certificado de fin de obra, signed by architect. For resale: verify LPO exists and is valid.
+
+=== SITUATIONAL RULES — APPLY ALL THAT MATCH ===
+
+MORTGAGE REGISTERED:
+→ RED alert. Request: (a) "Certificado de deuda pendiente" from lender; (b) retention clause authorising buyer to withhold from price the mortgage cancellation amount; (c) clause requiring registral cancellation before or simultaneous with escritura.
+→ Clause: "El comprador retendrá de la cantidad a entregar en escritura el importe necesario para la cancelación registral de la hipoteca que grava la finca, cuyo saldo será acreditado mediante certificado de deuda emitido por la entidad acreedora con una antelación máxima de 10 días hábiles a la fecha de la escritura pública de compraventa."
+
+UNDECLARED WORKS / DISCREPANCY CATASTRO-REGISTRO:
+→ RED alert. Require seller to: (a) declare obra nueva before escritura; (b) OR agree price retention for cost of legalisation; (c) provide declaración de antigüedad certificate.
+→ Clause: "El vendedor se obliga a declarar ante Notario la obra nueva correspondiente a [descripción] antes de la firma de la escritura pública de compraventa, siendo dicho trámite condición esencial del presente contrato. En caso de incumplimiento, el comprador podrá resolver el contrato con devolución del doble de las arras entregadas."
+
+COASTAL ZONE / LEY DE COSTAS:
+→ ORANGE/RED alert. Request: certificado de no afección costas from Demarcación de Costas, deslinde maritime-terrestrial domain, confirmation of any concesión administrativa.
+→ Clause: "El vendedor garantiza que la finca no se halla dentro del dominio público marítimo-terrestre ni de la servidumbre de protección de la Ley 22/1988 de Costas, aportando certificación de la Demarcación de Costas del Estado con carácter previo a la escritura pública."
+
+URBAN INFRACTION / RÚSTICO LAND:
+→ RED alert. Request: certificado de no expediente de infracción urbanística from ayuntamiento; certificado de antigüedad; check fuera de ordenación.
+→ Clause: "El vendedor garantiza que la finca y todas las construcciones existentes no son objeto de expediente de infracción urbanística, disciplina urbanística o procedimiento de demolición, comprometiéndose a aportar certificado del Ayuntamiento acreditativo de dicha circunstancia antes de la escritura pública."
+
+NON-RESIDENT SELLER:
+→ RED alert. Buyer MUST withhold 3% of price and pay AEAT via Modelo 211 within 30 days of escritura.
+→ Clause: "En cumplimiento del art. 25.2 LIRNR, el comprador retendrá el 3% del precio pactado ([importe] €) e ingresará dicho importe en la Agencia Tributaria mediante Modelo 211 en el plazo de un mes desde la escritura pública de compraventa."
+
+PRICE BELOW VALOR DE REFERENCIA:
+→ RED alert. AEAT taxes buyer on valor de referencia, not purchase price. Buyer will face unexpected tax demand.
+
+ARRAS PENITENCIALES WITHOUT SYMMETRIC PENALTY:
+→ RED alert. Seller must face equivalent deterrent. If seller penalty ≠ "doble de las arras", contract is asymmetric against buyer.
+
+NO FINANCING CONDITION + BUYER NEEDS MORTGAGE:
+→ RED alert. Buyer will lose deposit if bank refuses mortgage.
+→ Clause: "La presente compraventa queda sujeta a la condición suspensiva de obtención de financiación hipotecaria por importe mínimo de [X] € en plazo de [N] días. De no obtenerse, el contrato quedará resuelto sin penalización, con devolución íntegra de las cantidades entregadas."
+
+COMMUNITY DEBT CERTIFICATE MISSING:
+→ ORANGE alert. Buyer may inherit unpaid community fees (debts of up to 1 year attach to the property by law — art. 9.1.e LPH).
+→ Clause: "El vendedor aportará certificado de estar al corriente en el pago de las cuotas de la Comunidad de Propietarios, conforme al art. 9.1.e de la LPH, con anterioridad a la escritura pública."
+
+IBI NOT UP TO DATE:
+→ ORANGE alert. IBI debt of last 4 years attaches to property and follows the property on sale.
+→ Documents: recibo IBI año en curso + certificado de no deudas municipales.
+
+NO LICENCIA DE PRIMERA OCUPACIÓN (new build or unknown):
+→ RED alert for new builds. Without LPO, water/electricity cannot be connected legally and buyer cannot legally inhabit.
+
+SHORT DEADLINE TO ESCRITURA (< 30 days):
+→ ORANGE alert. Insufficient time for searches, mortgage, obra nueva declaration, certificates.
+
+EMPRESA AS SELLER:
+→ ORANGE alert. Verify: autorización del órgano social competente, tax status, latent corporate taxes. Request: certificado de deudas con AEAT y Seguridad Social.
+
+=== SCORING ===
+Start 100. Deduct:
+- 25 per RED alert (critical — do not sign until resolved)
 - 12 per ORANGE alert (important — strongly recommended)
-- 5 per YELLOW alert (worth noting)
-Minimum score: 0. Score as integer 0-100.
+- 5 per YELLOW alert
+Minimum 0.
 
-RISK LEVEL:
-- 80-100: low
-- 60-79: medium
-- 40-59: high
-- 0-39: critical
+CLASIFICACION FINAL:
+- Score 80-100, no reds: "puede_firmarse"
+- Score 50-79, or reds fixable by clause: "puede_firmarse_con_modificaciones"
+- Score < 50, or unresolvable reds: "no_deberia_firmarse"
 
-IMPORTANT OUTPUT RULES:
-- Generate up to 10 alerts maximum. Prioritize RED first.
-- For EVERY red and orange alert: include a "clause" field with the recommended protective clause text in Spanish legal language (use the examples above as style guide — formal, precise, 2-4 sentences).
-- For EVERY alert: include a "documents" array listing the specific documents the buyer should request related to that issue.
-- The "documents_to_request" top-level list must aggregate ALL documents from all alerts (deduplicated).
-- "missing_clauses" = list of clause names not found in contract that should be there.
-- "dangerous_clauses" = specific problematic clauses found in the contract text (if text was provided).
-- "recommended_actions" = concrete numbered steps buyer should take NOW, in priority order.
-- Be specific and practical — this analysis is what the buyer will use to negotiate or walk away.
+=== OUTPUT ===
+Respond ONLY with valid JSON (no markdown fences). All text in the response language. Clause texts always in Spanish.
 
-Respond ONLY with valid JSON in this exact structure (no markdown fences):
 {{
-  "score": <integer 0-100>,
+  "score": <0-100>,
   "risk_level": "<low|medium|high|critical>",
-  "summary": "<3-4 sentences: overall assessment, biggest risk, and key recommendation>",
+  "clasificacion_final": "<puede_firmarse|puede_firmarse_con_modificaciones|no_deberia_firmarse>",
+  "summary": "<Executive summary: 3-4 sentences. State the biggest risk, the most critical missing document, and the final recommendation>",
   "alerts": [
     {{
       "level": "<red|orange|yellow|green>",
-      "category": "<registro|catastro|fiscalidad|contrato|urbanismo|comunidad|hipoteca|ocupantes|obras|otro>",
-      "title": "<concise title in {req.language}>",
-      "body": "<detailed explanation for the buyer — what is the risk and why it matters>",
-      "clause": "<recommended protective clause in Spanish, or null>",
-      "documents": ["<document name>", ...],
-      "action": "<specific action buyer should take now>"
+      "category": "<registral|catastral|urbanismo|comunidad|fiscal|contrato|posesion|licencias|costas|otro>",
+      "title": "<concise title>",
+      "body": "<detailed explanation of the risk and its practical consequences for the buyer>",
+      "clause": "<recommended protective clause in Spanish legal language — required for all red and orange alerts, null otherwise>",
+      "documents": ["<specific document name>", ...],
+      "actuacion_previa": "<what must be done BEFORE signing, or null>",
+      "quien_asume": "<vendedor|comprador|ambos|null>",
+      "action": "<concrete next step for buyer>"
     }}
   ],
+  "documentacion_aportada": ["<doc name>", ...],
+  "documentacion_pendiente": ["<doc name — what has not been provided but is essential>", ...],
   "missing_clauses": ["<clause name>", ...],
-  "dangerous_clauses": ["<description of dangerous clause found>", ...],
-  "recommended_actions": ["<concrete action step>", ...],
-  "documents_to_request": ["<document name>", ...]
+  "dangerous_clauses": ["<description of problematic clause found in contract text>", ...],
+  "actuaciones_previas_imprescindibles": ["<action that MUST happen before signing>", ...],
+  "actuaciones_recomendadas": ["<recommended but not strictly mandatory action>", ...],
+  "clausulas_adicionales_recomendadas": ["<clause name + one-line description>", ...],
+  "recommended_actions": ["<prioritized concrete action for buyer>", ...],
+  "documents_to_request": ["<document name>", ...],
+  "checklist_antes_de_firmar": ["<item>", ...],
+  "checklist_antes_de_escritura": ["<item>", ...],
+  "preguntas_adicionales": ["<dynamic follow-up question the buyer should answer to complete the due diligence>", ...]
 }}
+
+Generate maximum 12 alerts. Focus RED alerts first. Be exhaustive in documentacion_pendiente — list everything that is missing that a diligent lawyer would require. Generate 5-8 preguntas_adicionales for any aspect that was unknown or not provided.
 """
+
 
 # ── Endpoint ───────────────────────────────────────────────────────────────────
 
@@ -264,20 +408,20 @@ Respond ONLY with valid JSON in this exact structure (no markdown fences):
 async def health():
     return {
         "status": "ok",
-        "service": "contrato-analyzer",
-        "version": "2.0.0",
+        "service": "due-diligence-inmobiliaria",
+        "version": "3.0.0",
         "api_key_set": bool(ANTHROPIC_KEY),
         "api_key_prefix": ANTHROPIC_KEY[:12] + "..." if ANTHROPIC_KEY else "NOT SET"
     }
 
-@app.post("/analyze", response_model=ContractAnalysis)
+@app.post("/analyze", response_model=DueDiligenceReport)
 async def analyze_contract(req: ContractRequest):
     if not ANTHROPIC_KEY:
         raise HTTPException(status_code=500, detail="API key not configured")
 
     prompt = build_prompt(req)
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(90.0, connect=10.0)) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
         response = await client.post(
             "https://api.anthropic.com/v1/messages",
             headers={
@@ -298,30 +442,39 @@ async def analyze_contract(req: ContractRequest):
     data = response.json()
     text = data["content"][0]["text"].strip()
 
-    # Strip markdown code fences if present
+    # Strip markdown fences
     if text.startswith("```"):
         lines = text.split("\n")
         text = "\n".join(lines[1:])
         if text.endswith("```"):
             text = text[:-3].strip()
 
+    # Default empty lists for new fields
+    new_fields = [
+        "documentacion_aportada", "documentacion_pendiente", "missing_clauses",
+        "dangerous_clauses", "actuaciones_previas_imprescindibles", "actuaciones_recomendadas",
+        "clausulas_adicionales_recomendadas", "recommended_actions", "documents_to_request",
+        "checklist_antes_de_firmar", "checklist_antes_de_escritura", "preguntas_adicionales"
+    ]
+
     try:
         result = json.loads(text)
-        # Ensure new fields exist with defaults
-        if "documents_to_request" not in result:
-            docs = []
-            for a in result.get("alerts", []):
-                docs.extend(a.get("documents") or [])
-            result["documents_to_request"] = list(dict.fromkeys(docs))
-        return ContractAnalysis(**result)
+        for f in new_fields:
+            if f not in result:
+                result[f] = []
+        if "clasificacion_final" not in result:
+            s = result.get("score", 50)
+            result["clasificacion_final"] = "puede_firmarse" if s >= 80 else "puede_firmarse_con_modificaciones" if s >= 50 else "no_deberia_firmarse"
+        return DueDiligenceReport(**result)
     except json.JSONDecodeError:
-        # JSON truncated — recover what we have
+        # Robust recovery
         try:
             import re
             score_m = re.search(r'"score":\s*(\d+)', text)
             risk_m = re.search(r'"risk_level":\s*"([^"]+)"', text)
             summary_m = re.search(r'"summary":\s*"([^"]+)"', text)
-            # Extract complete alert objects (must have at least level+title+body)
+            clasif_m = re.search(r'"clasificacion_final":\s*"([^"]+)"', text)
+
             complete_alerts = []
             for m in re.finditer(r'\{[^{}]*"level"[^{}]*"title"[^{}]*"body"[^{}]*\}', text, re.S):
                 try:
@@ -332,22 +485,19 @@ async def analyze_contract(req: ContractRequest):
 
             score = int(score_m.group(1)) if score_m else 40
             risk = risk_m.group(1) if risk_m else "high"
-            summary = summary_m.group(1) if summary_m else "Analys genomförd — granska varningarna nedan."
+            summary = summary_m.group(1) if summary_m else "Análisis parcial completado — revise las alertas."
+            clasif = clasif_m.group(1) if clasif_m else "no_deberia_firmarse"
 
-            return ContractAnalysis(
-                score=score,
-                risk_level=risk,
-                summary=summary,
-                alerts=complete_alerts[:8],
-                missing_clauses=[],
-                dangerous_clauses=[],
-                recommended_actions=["Kontakta Hugo Gutiérrez Colás för fullständig granskning av avtalet."],
-                documents_to_request=[]
+            return DueDiligenceReport(
+                score=score, risk_level=risk, clasificacion_final=clasif,
+                summary=summary, alerts=complete_alerts[:8],
+                **{f: [] for f in new_fields}
             )
         except Exception as e2:
             raise HTTPException(status_code=500, detail=f"Parse error: {str(e2)}\nRaw: {text[:300]}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
 
 if __name__ == "__main__":
     import uvicorn
