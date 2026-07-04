@@ -120,6 +120,10 @@ class PropertyContext(BaseModel):
 
 class ContractRequest(BaseModel):
     contract_text: Optional[str] = None
+    additional_documents: Optional[str] = None   # nota simple, cert energia, cedula urbanistica, otros
+    cert_energia_estado: Optional[str] = None    # si | no | caducado
+    cert_energia_calificacion: Optional[str] = None  # A-G
+    cedula_urbanistica_tipo: Optional[str] = None
     property_context: Optional[PropertyContext] = None
     language: str = "sv"
     mode: str = "public"
@@ -268,9 +272,37 @@ DOCUMENTS PROVIDED BY USER: {docs_str}
         contract_block = f"""
 === CONTRACT TEXT (analyze every clause) ===
 ---
-{req.contract_text[:7000]}
+{req.contract_text[:6000]}
 ---
 """
+
+    # Additional documents block
+    additional_block = ""
+    if req.additional_documents and len(req.additional_documents.strip()) > 20:
+        additional_block = f"""
+=== ADDITIONAL DOCUMENTS PROVIDED BY USER ===
+Analyze each document carefully and cross-reference with the contract and property data.
+---
+{req.additional_documents[:4000]}
+---
+"""
+
+    # Energy certificate rules
+    energia_block = ""
+    if req.cert_energia_estado:
+        if req.cert_energia_estado == 'no':
+            energia_block = "ENERGY CERTIFICATE: NOT PROVIDED. FLAG as orange alert — certificado de eficiencia energética is mandatory for property sales in Spain (RD 235/2013, art. 14). Without it, seller cannot legally sell and buyer can claim nullity or price reduction."
+        elif req.cert_energia_estado == 'caducado':
+            energia_block = f"ENERGY CERTIFICATE: PROVIDED BUT EXPIRED. FLAG as orange alert — expired certificate is invalid. Must be renewed before escritura. Rating was: {req.cert_energia_calificacion or 'unknown'}."
+        elif req.cert_energia_estado == 'si':
+            rating = req.cert_energia_calificacion or 'unknown'
+            if rating in ('F', 'G'):
+                energia_block = f"ENERGY CERTIFICATE: Valid, rating {rating} (very low efficiency). Note for buyer: high energy costs likely. Mention as yellow alert."
+            else:
+                energia_block = f"ENERGY CERTIFICATE: Valid, rating {rating}. No issues."
+
+    if energia_block:
+        additional_block = (additional_block or "") + "\n" + energia_block
 
     lang_reminder = {
         "sv": "ALL JSON fields in SWEDISH. Only alerts[].clause in Spanish.",
@@ -290,6 +322,7 @@ DOCUMENTS PROVIDED BY USER: {docs_str}
 
 {context_block}
 {contract_block}
+{additional_block}
 
 === YOUR MISSION ===
 
