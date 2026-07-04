@@ -278,6 +278,12 @@ DOCUMENTS PROVIDED BY USER: {docs_str}
         "en": "ALL JSON fields in ENGLISH. Only alerts[].clause in Spanish."
     }.get(req.language, "ALL JSON fields in SWEDISH.")
 
+    lang_sys = {
+        "sv": "Write ALL analysis output in Swedish (svenska). The contract may be in Spanish — analyse it but write your response in Swedish. ONLY the alerts[].clause field stays in Spanish. Every other JSON field must be in Swedish.",
+        "es": "Responde completamente en español.",
+        "en": "Write ALL analysis output in English. Only alerts[].clause stays in Spanish."
+    }.get(req.language, "Write ALL output in Swedish.")
+
     return f"""You are Hugo Gutiérrez Colás, Abogado español colegiado nr 6.539 ICALI, with 19 years of experience in real estate law on Costa Blanca, Spain. You work through Colás Jurist (colasjurist.se) and specialize in protecting Swedish buyers in Spanish property transactions.
 
 {lang_instruction}
@@ -364,9 +370,11 @@ URBAN INFRACTION / RÚSTICO LAND:
 → RED alert. Request: certificado de no expediente de infracción urbanística from ayuntamiento; certificado de antigüedad; check fuera de ordenación.
 → Clause: "El vendedor garantiza que la finca y todas las construcciones existentes no son objeto de expediente de infracción urbanística, disciplina urbanística o procedimiento de demolición, comprometiéndose a aportar certificado del Ayuntamiento acreditativo de dicha circunstancia antes de la escritura pública."
 
-NON-RESIDENT SELLER:
-→ RED alert. Buyer MUST withhold 3% of price and pay AEAT via Modelo 211 within 30 days of escritura.
-→ Clause: "En cumplimiento del art. 25.2 LIRNR, el comprador retendrá el 3% del precio pactado ([importe] €) e ingresará dicho importe en la Agencia Tributaria mediante Modelo 211 en el plazo de un mes desde la escritura pública de compraventa."
+NON-RESIDENT SELLER (vendedor no residente en España):
+→ RED alert. CRITICAL TAX RULE: When the SELLER is non-resident in Spain, the BUYER must withhold 3% of the purchase price and pay it to AEAT via Modelo 211 within 30 days of escritura (art. 25.2 LIRNR).
+→ IMPORTANT: This rule applies to the SELLER being non-resident — NOT the buyer. If the buyer is non-resident but the seller IS resident, this rule does NOT apply.
+→ Do NOT confuse buyer non-residency with seller non-residency. The 3% retention is ALWAYS about the seller's tax residency status.
+→ Clause: "En cumplimiento del art. 25.2 LIRNR, el comprador retendrá el 3% del precio pactado ([importe] €) e ingresará dicho importe en la Agencia Tributaria mediante Modelo 211 en el plazo de un mes desde la escritura pública de compraventa, por ser el vendedor no residente fiscal en España."
 
 PRICE BELOW VALOR DE REFERENCIA:
 → RED alert. AEAT taxes buyer on valor de referencia, not purchase price. Buyer will face unexpected tax demand.
@@ -478,6 +486,7 @@ async def analyze_contract(req: ContractRequest):
             json={
                 "model": "claude-haiku-4-5",
                 "max_tokens": 4096,
+                "system": f"You are a Spanish real estate lawyer. {lang_sys}",
                 "messages": [{"role": "user", "content": prompt}]
             }
         )
