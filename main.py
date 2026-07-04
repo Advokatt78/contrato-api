@@ -174,6 +174,14 @@ class DueDiligenceReport(BaseModel):
 
 # ── Master Due Diligence Prompt ─────────────────────────────────────────────────
 
+def get_lang_sys(language: str) -> str:
+    return {
+        "sv": "Write ALL analysis output in Swedish (svenska). The contract may be in Spanish \u2014 analyse it but write your response in Swedish. ONLY the alerts[].clause field stays in Spanish. Every other JSON field must be in Swedish.",
+        "es": "Responde completamente en espa\u00f1ol.",
+        "en": "Write ALL analysis output in English. Only alerts[].clause stays in Spanish."
+    }.get(language, "Write ALL output in Swedish.")
+
+
 def build_prompt(req: ContractRequest) -> str:
     lang_instruction = {
         "sv": """CRITICAL LANGUAGE RULE — NON-NEGOTIABLE: You MUST write ALL output in Swedish (svenska). 
@@ -309,12 +317,6 @@ Analyze each document carefully and cross-reference with the contract and proper
         "es": "Todo en español.",
         "en": "ALL JSON fields in ENGLISH. Only alerts[].clause in Spanish."
     }.get(req.language, "ALL JSON fields in SWEDISH.")
-
-    lang_sys = {
-        "sv": "Write ALL analysis output in Swedish (svenska). The contract may be in Spanish — analyse it but write your response in Swedish. ONLY the alerts[].clause field stays in Spanish. Every other JSON field must be in Swedish.",
-        "es": "Responde completamente en español.",
-        "en": "Write ALL analysis output in English. Only alerts[].clause stays in Spanish."
-    }.get(req.language, "Write ALL output in Swedish.")
 
     return f"""You are Hugo Gutiérrez Colás, Abogado español colegiado nr 6.539 ICALI, with 19 years of experience in real estate law on Costa Blanca, Spain. You work through Colás Jurist (colasjurist.se) and specialize in protecting Swedish buyers in Spanish property transactions.
 
@@ -519,7 +521,7 @@ async def analyze_contract(req: ContractRequest):
             json={
                 "model": "claude-haiku-4-5",
                 "max_tokens": 4096,
-                "system": f"You are a Spanish real estate lawyer. {lang_sys}",
+                "system": f"You are a Spanish real estate lawyer. {get_lang_sys(req.language)}",
                 "messages": [{"role": "user", "content": prompt}]
             }
         )
