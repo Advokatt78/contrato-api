@@ -5,8 +5,8 @@ Para colasjurist.se | Hugo Gutiérrez Colás, Abogado nr 6.539 ICALI
 """
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, field_validator, model_validator
+from typing import Optional, Any, Union
 import httpx, json, os
 
 app = FastAPI(title="Due Diligence Inmobiliaria API", version="3.0.0")
@@ -22,73 +22,100 @@ ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 # ── Models ─────────────────────────────────────────────────────────────────────
 
+def _to_bool(v):
+    """Coerce string 'si'/'no'/'true'/'false' to bool, pass through bool/None."""
+    if v is None: return None
+    if isinstance(v, bool): return v
+    if isinstance(v, str):
+        return v.lower() in ('si', 'yes', 'true', '1', 'sí')
+    return bool(v)
+
+
 class PropertyContext(BaseModel):
+    model_config = {'arbitrary_types_allowed': True}
+
     # Basic property data
     precio: Optional[float] = None
     municipio: Optional[str] = None
-    tipo: Optional[str] = None          # segunda-mano | obra-nueva | rustico
-    vendedor: Optional[str] = None      # particular | empresa | banco | promotor
+    tipo: Optional[str] = None
+    vendedor: Optional[str] = None
     comprador_residente: Optional[str] = None
-    hipoteca_comprador: Optional[bool] = None
+    hipoteca_comprador: Optional[Any] = None
 
-    # Registry (Registro de la Propiedad)
-    cargas: Optional[str] = None        # ninguna | hipoteca | embargo | usufructo | servidumbre | otros | unknown
-    titularidad: Optional[str] = None   # 1 | 2 | 3+ | empresa
+    # Registry
+    cargas: Optional[str] = None
+    titularidad: Optional[str] = None
     superficie_registro: Optional[float] = None
     superficie_parcela_registro: Optional[float] = None
     anno_construccion_registro: Optional[int] = None
-    obra_nueva_inscrita: Optional[bool] = None
-    division_horizontal: Optional[bool] = None
+    obra_nueva_inscrita: Optional[Any] = None
+    division_horizontal: Optional[Any] = None
     cuota_participacion: Optional[float] = None
 
     # Catastro
     superficie_catastro: Optional[float] = None
     superficie_parcela_catastro: Optional[float] = None
     anno_construccion_catastro: Optional[int] = None
-    piscina_catastro: Optional[bool] = None
-    garaje_catastro: Optional[bool] = None
-    trastero_catastro: Optional[bool] = None
-    obras_no_declaradas: Optional[bool] = None
+    piscina_catastro: Optional[Any] = None
+    garaje_catastro: Optional[Any] = None
+    trastero_catastro: Optional[Any] = None
+    obras_no_declaradas: Optional[Any] = None
     valor_referencia: Optional[float] = None
     valor_catastral: Optional[float] = None
 
     # Urban planning
-    zona_costera: Optional[bool] = None
-    tipo_suelo: Optional[str] = None    # urbano | no-urbanizable | urbanizable
-    tiene_licencia_primera_ocupacion: Optional[str] = None  # si | no | unknown
-    expediente_urbanistico: Optional[str] = None  # si | no | unknown
+    zona_costera: Optional[Any] = None
+    tipo_suelo: Optional[str] = None
+    tiene_licencia_primera_ocupacion: Optional[str] = None
+    expediente_urbanistico: Optional[str] = None
 
     # Community
-    comunidad: Optional[bool] = None
-    certificado_deuda_comunidad: Optional[str] = None  # si | no | pending
+    comunidad: Optional[Any] = None
+    certificado_deuda_comunidad: Optional[str] = None
     actas_comunidad: Optional[str] = None
-    derramas_pendientes: Optional[str] = None  # si | no | unknown
-    alquiler_turistico_permitido: Optional[str] = None  # si | no | unknown
+    derramas_pendientes: Optional[str] = None
+    alquiler_turistico_permitido: Optional[str] = None
 
     # Fiscal
-    ibi_al_corriente: Optional[str] = None  # si | no | unknown
-    vendedor_no_residente: Optional[str] = None  # si | no | unknown
-    precio_negro: Optional[bool] = None
+    ibi_al_corriente: Optional[str] = None
+    vendedor_no_residente: Optional[str] = None
+    precio_negro: Optional[Any] = None
 
     # Contract fields
-    tipo_contrato: Optional[str] = None  # reserva | arras | privado | ninguno
+    tipo_contrato: Optional[str] = None
     tiene_arras: Optional[str] = None
-    tipo_arras: Optional[str] = None    # penitenciales | confirmatorias | desconocido
+    tipo_arras: Optional[str] = None
     importe_senyal: Optional[float] = None
     penalizacion_comprador: Optional[float] = None
     penalizacion_vendedor: Optional[str] = None
-    condicion_financiacion: Optional[bool] = None
-    clausula_cargas: Optional[bool] = None
-    clausula_ocupantes: Optional[bool] = None
-    clausula_ibi: Optional[bool] = None
-    clausula_comunidad: Optional[bool] = None
-    clausula_cancelacion_hipoteca: Optional[bool] = None
-    clausula_retencion_3pct: Optional[bool] = None
-    clausula_plusvalia: Optional[str] = None  # vendedor | comprador | no
+    condicion_financiacion: Optional[Any] = None
+    clausula_cargas: Optional[Any] = None
+    clausula_ocupantes: Optional[Any] = None
+    clausula_ibi: Optional[Any] = None
+    clausula_comunidad: Optional[Any] = None
+    clausula_cancelacion_hipoteca: Optional[Any] = None
+    clausula_retencion_3pct: Optional[Any] = None
+    clausula_plusvalia: Optional[str] = None
     plazo_escritura_dias: Optional[int] = None
+    documentos_aportados: Optional[list] = None
 
-    # Documentation provided by user
-    documentos_aportados: Optional[list[str]] = None  # list of doc types provided
+    @model_validator(mode='before')
+    @classmethod
+    def coerce_bools(cls, data):
+        """Convert string 'si'/'no' to bool for all bool fields."""
+        bool_fields = [
+            'hipoteca_comprador','obra_nueva_inscrita','division_horizontal',
+            'piscina_catastro','garaje_catastro','trastero_catastro','obras_no_declaradas',
+            'zona_costera','comunidad','precio_negro',
+            'condicion_financiacion','clausula_cargas','clausula_ocupantes',
+            'clausula_ibi','clausula_comunidad','clausula_cancelacion_hipoteca',
+            'clausula_retencion_3pct'
+        ]
+        if isinstance(data, dict):
+            for f in bool_fields:
+                if f in data:
+                    data[f] = _to_bool(data[f])
+        return data
 
 
 class ContractRequest(BaseModel):
