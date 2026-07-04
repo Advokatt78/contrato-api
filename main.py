@@ -219,7 +219,7 @@ async def analyze_contract(req: ContractRequest):
             },
             json={
                 "model": "claude-haiku-4-5",
-                "max_tokens": 2048,
+                "max_tokens": 3500,
                 "messages": [{"role": "user", "content": prompt[:6000]}]
             }
         )
