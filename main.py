@@ -195,7 +195,12 @@ Generate up to 12 alerts maximum. Focus on the most important risks first.
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "contrato-analyzer"}
+    return {
+        "status": "ok",
+        "service": "contrato-analyzer",
+        "api_key_set": bool(ANTHROPIC_KEY),
+        "api_key_prefix": ANTHROPIC_KEY[:12] + "..." if ANTHROPIC_KEY else "NOT SET"
+    }
 
 @app.post("/analyze", response_model=ContractAnalysis)
 async def analyze_contract(req: ContractRequest):
@@ -204,7 +209,7 @@ async def analyze_contract(req: ContractRequest):
     
     prompt = build_prompt(req)
     
-    async with httpx.AsyncClient(timeout=45.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0)) as client:
         response = await client.post(
             "https://api.anthropic.com/v1/messages",
             headers={
@@ -214,8 +219,8 @@ async def analyze_contract(req: ContractRequest):
             },
             json={
                 "model": "claude-haiku-4-5",
-                "max_tokens": 4096,
-                "messages": [{"role": "user", "content": prompt}]
+                "max_tokens": 2048,
+                "messages": [{"role": "user", "content": prompt[:6000]}]
             }
         )
     
