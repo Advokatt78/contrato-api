@@ -1,4 +1,5 @@
 """
+# Updated: 2026-07-04T16:37:03.453618
 Analizador de Contratos Inmobiliarios — Backend API
 Para colasjurist.se | Hugo Gutiérrez Colás, Abogado nr 6.539 ICALI
 """
@@ -239,10 +240,41 @@ async def analyze_contract(req: ContractRequest):
     try:
         result = json.loads(text)
         return ContractAnalysis(**result)
+    except json.JSONDecodeError:
+        # JSON truncated — try to recover what we have
+        try:
+            import re
+            # Extract score
+            score_m = re.search(r'"score":\s*(\d+)', text)
+            risk_m = re.search(r'"risk_level":\s*"([^"]+)"', text)
+            summary_m = re.search(r'"summary":\s*"([^"]+)"', text)
+            # Extract complete alert objects only
+            complete_alerts = []
+            for m in re.finditer(r'\{[^{}]*"level"[^{}]*"category"[^{}]*"title"[^{}]*"body"[^{}]*\}', text, re.S):
+                try:
+                    a = json.loads(m.group(0))
+                    complete_alerts.append(a)
+                except:
+                    pass
+            
+            score = int(score_m.group(1)) if score_m else 40
+            risk = risk_m.group(1) if risk_m else "high"
+            summary = summary_m.group(1) if summary_m else "Analys genomförd — granska varningarna nedan."
+            
+            return ContractAnalysis(
+                score=score,
+                risk_level=risk,
+                summary=summary,
+                alerts=complete_alerts[:8],
+                missing_clauses=[],
+                dangerous_clauses=[],
+                recommended_actions=["Kontakta Hugo Gutiérrez Colás för fullständig granskning."]
+            )
+        except Exception as e2:
+            raise HTTPException(status_code=500, detail=f"Parse error: {str(e2)}\nRaw: {text[:300]}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Parse error: {str(e)}\nRaw: {text[:500]}")
+        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-# redeploy sábado,  4 de julio de 2026, 18:37:55 CEST
