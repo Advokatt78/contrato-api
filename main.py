@@ -245,3 +245,4 @@ async def analyze_contract(req: ContractRequest):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+# redeploy sábado,  4 de julio de 2026, 18:37:55 CEST
