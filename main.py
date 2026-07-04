@@ -172,10 +172,21 @@ class DueDiligenceReport(BaseModel):
 
 def build_prompt(req: ContractRequest) -> str:
     lang_instruction = {
-        "sv": "LANGUAGE: Respond entirely in Swedish (svenska). Use natural Swedish legal terminology. Exception: clause texts must remain in Spanish legal language.",
-        "es": "LANGUAGE: Responde completamente en español. Usa terminología jurídica española. Los textos de cláusulas en español.",
-        "en": "LANGUAGE: Respond entirely in English. Use Spanish legal terms with English explanations. Clause texts in Spanish."
-    }.get(req.language, "Respond in Swedish.")
+        "sv": """CRITICAL LANGUAGE RULE — NON-NEGOTIABLE: You MUST write ALL output in Swedish (svenska). 
+This is mandatory regardless of the language of the contract text provided.
+The contract may be in Spanish or English — that does not matter. YOUR ANALYSIS must be in Swedish.
+Every field in the JSON — summary, alerts[].title, alerts[].body, alerts[].action, 
+alerts[].actuacion_previa, documentacion_pendiente[], actuaciones_previas_imprescindibles[], 
+actuaciones_recomendadas[], clausulas_adicionales_recomendadas[], recommended_actions[], 
+documents_to_request[], checklist_antes_de_firmar[], checklist_antes_de_escritura[], 
+missing_clauses[], dangerous_clauses[], preguntas_adicionales[] — ALL in Swedish.
+ONLY exception: the alerts[].clause field must remain in Spanish legal language (it is contract text).
+If you write a single sentence in Spanish or English (except clause texts), you have failed.""",
+        "es": """REGLA DE IDIOMA OBLIGATORIA: Responde completamente en español en todos los campos JSON.
+El texto de las cláusulas también en español.""",
+        "en": """CRITICAL LANGUAGE RULE: You MUST write ALL output in English regardless of contract language.
+ONLY exception: alerts[].clause field stays in Spanish legal language."""
+    }.get(req.language, "Write ALL output in Swedish.")
 
     ctx = req.property_context or PropertyContext()
 
@@ -260,6 +271,12 @@ DOCUMENTS PROVIDED BY USER: {docs_str}
 {req.contract_text[:7000]}
 ---
 """
+
+    lang_reminder = {
+        "sv": "ALL JSON fields in SWEDISH. Only alerts[].clause in Spanish.",
+        "es": "Todo en español.",
+        "en": "ALL JSON fields in ENGLISH. Only alerts[].clause in Spanish."
+    }.get(req.language, "ALL JSON fields in SWEDISH.")
 
     return f"""You are Hugo Gutiérrez Colás, Abogado español colegiado nr 6.539 ICALI, with 19 years of experience in real estate law on Costa Blanca, Spain. You work through Colás Jurist (colasjurist.se) and specialize in protecting Swedish buyers in Spanish property transactions.
 
@@ -391,7 +408,9 @@ CLASIFICACION FINAL:
 - Score < 50, or unresolvable reds: "no_deberia_firmarse"
 
 === OUTPUT ===
-Respond ONLY with valid JSON (no markdown fences). All text in the response language. Clause texts always in Spanish.
+FINAL REMINDER — LANGUAGE: {lang_reminder}
+
+Respond ONLY with valid JSON (no markdown fences). Clause texts (alerts[].clause field only) always in Spanish. All other fields in the required language above.
 
 {{
   "score": <0-100>,
