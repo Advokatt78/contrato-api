@@ -82,6 +82,9 @@ class PropertyContext(BaseModel):
     vendedor_no_residente: Optional[str] = None
     precio_negro: Optional[Any] = None
 
+    # Mortgage capital
+    hipoteca_capital_pendiente: Optional[float] = None  # outstanding mortgage balance in €
+
     # Contract fields
     tipo_contrato: Optional[str] = None
     tiene_arras: Optional[str] = None
@@ -230,6 +233,7 @@ BASIC:
 
 REGISTRY (Registro de la Propiedad):
 - Registered charges: {ctx.cargas or 'unknown'}
+- Outstanding mortgage balance (if provided): {ctx.hipoteca_capital_pendiente or 'not specified — request certificado de deuda from lender'}
 - Ownership: {ctx.titularidad or 'unknown'}
 - Registry built area: {ctx.superficie_registro or 0} m²
 - Registry plot area: {ctx.superficie_parcela_registro or 0} m²
@@ -406,8 +410,20 @@ MORTGAGE REGISTERED:
 → Clause: "El comprador retendrá de la cantidad a entregar en escritura el importe necesario para la cancelación registral de la hipoteca que grava la finca, cuyo saldo será acreditado mediante certificado de deuda emitido por la entidad acreedora con una antelación máxima de 10 días hábiles a la fecha de la escritura pública de compraventa."
 
 UNDECLARED WORKS / DISCREPANCY CATASTRO-REGISTRO:
-→ RED alert. Require seller to: (a) declare obra nueva before escritura; (b) OR agree price retention for cost of legalisation; (c) provide declaración de antigüedad certificate.
-→ Clause: "El vendedor se obliga a declarar ante Notario la obra nueva correspondiente a [descripción] antes de la firma de la escritura pública de compraventa, siendo dicho trámite condición esencial del presente contrato. En caso de incumplimiento, el comprador podrá resolver el contrato con devolución del doble de las arras entregadas."
+→ RED alert. Require seller to: (a) declare obra nueva before escritura; (b) OR agree price retention for cost of legalisation; (c) provide certificado de antigüedad.
+→ CRITICAL LEGAL FACTS FOR COMUNITAT VALENCIANA:
+  - Prescription period for urban infractions: 15 YEARS (art. 246 TRLOTUP / Ley 5/2014 LOTUP). NOT 6 years. Works older than 15 years are NOT subject to demolition order in Comunitat Valenciana.
+  - To prove prescription: certificado de antigüedad from an architect confirming works are more than 15 years old.
+  - Certificate of no urban infraction (certificado de no expediente de infraccion) from Ayuntamiento.
+  - NEVER say 6 years for prescription. The correct period in Comunitat Valenciana is 15 YEARS.
+→ OBRA NUEVA COSTS — always specify these estimated costs for buyer to retain from price:
+  - Notario (escritura declaracion obra nueva): 600-1.200 €
+  - Arquitecto (certificado de antigüedad + proyecto tecnico): 800-2.000 €
+  - Solicitud certificado de no infraccion urbanistica (Ayuntamiento): 100-300 €
+  - Registro de la Propiedad (inscripcion obra nueva): 300-600 €
+  - AJD (Actos Juridicos Documentados) Comunitat Valenciana: 1,4% sobre el valor declarado de la obra nueva
+  - TOTAL estimated retention recommended: minimum 3.000-5.000 € + 1,4% AJD on obra nueva value
+→ Clause: "El vendedor se obliga a declarar ante Notario la obra nueva correspondiente a [descripción] antes de la firma de la escritura pública de compraventa, siendo dicho trámite condición esencial del presente contrato. A tal efecto, el comprador retendrá de la cantidad a entregar en escritura la suma de [importe] euros en concepto de gastos estimados de declaración de obra nueva (notario, arquitecto, certificado de no infracción, registro e Impuesto de Actos Jurídicos Documentados al 1,4%), quedando dicha cantidad depositada en poder del comprador hasta la efectiva inscripción registral de la obra nueva. En caso de incumplimiento, el comprador podrá resolver el contrato con devolución del doble de las arras entregadas."
 
 COASTAL ZONE / LEY DE COSTAS:
 → ORANGE/RED alert. Request: certificado de no afección costas from Demarcación de Costas, deslinde maritime-terrestrial domain, confirmation of any concesión administrativa.
