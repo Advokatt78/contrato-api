@@ -175,11 +175,22 @@ class DueDiligenceReport(BaseModel):
 # ── Master Due Diligence Prompt ─────────────────────────────────────────────────
 
 def get_lang_sys(language: str) -> str:
-    return {
-        "sv": "Write ALL analysis output in Swedish (svenska). The contract may be in Spanish \u2014 analyse it but write your response in Swedish. ONLY the alerts[].clause field stays in Spanish. Every other JSON field must be in Swedish.",
-        "es": "Responde completamente en espa\u00f1ol.",
-        "en": "Write ALL analysis output in English. Only alerts[].clause stays in Spanish."
-    }.get(language, "Write ALL output in Swedish.")
+    sv = (
+        "ABSOLUTE RULE - LANGUAGE OUTPUT: You MUST write every single JSON field in Swedish (svenska). "
+        "Non-negotiable. Documents may be in Spanish or English - fine, read them, but WRITE in Swedish. "
+        "ALL these fields in Swedish: summary, alerts[].title, alerts[].body, alerts[].action, "
+        "documentacion_pendiente[], actuaciones_previas_imprescindibles[], recommended_actions[], "
+        "documents_to_request[], missing_clauses[], checklist_antes_de_firmar[], "
+        "checklist_antes_de_escritura[], preguntas_adicionales[]. "
+        "ONLY alerts[].clause stays in Spanish legal language. "
+        "Writing Spanish outside alerts[].clause = task failure."
+    )
+    es = "Responde en espanol en todos los campos JSON. Las clausulas tambien en espanol."
+    en = (
+        "ABSOLUTE RULE - LANGUAGE: Write every JSON field in English. "
+        "ONLY exception: alerts[].clause stays in Spanish legal language."
+    )
+    return {"sv": sv, "es": es, "en": en}.get(language, sv)
 
 
 def build_prompt(req: ContractRequest) -> str:
@@ -519,7 +530,7 @@ async def analyze_contract(req: ContractRequest):
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-haiku-4-5",
+                "model": "claude-sonnet-4-5",
                 "max_tokens": 4096,
                 "system": f"You are a Spanish real estate lawyer. {get_lang_sys(req.language)}",
                 "messages": [{"role": "user", "content": prompt}]
