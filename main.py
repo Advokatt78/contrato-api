@@ -5,9 +5,10 @@ Para colasjurist.se | Hugo Gutiérrez Colás, Abogado nr 6.539 ICALI
 """
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator, model_validator
 from typing import Optional, Any, Union
-import httpx, json, os
+import httpx, json, os, tempfile, io
 
 app = FastAPI(title="Due Diligence Inmobiliaria API", version="3.0.0")
 
@@ -598,6 +599,55 @@ async def analyze_contract(req: ContractRequest):
             raise HTTPException(status_code=500, detail=f"Parse error: {str(e2)}\nRaw: {text[:300]}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+
+
+# ── PDF Generation Endpoint ────────────────────────────────────────────────
+
+class PdfRequest(BaseModel):
+    lang: str = "sv"
+    property: Optional[dict] = None
+    catastro: Optional[dict] = None
+    registro: Optional[dict] = None
+    urbanismo: Optional[dict] = None
+    analysis: Optional[dict] = None   # Claude due diligence result
+
+@app.post("/generate-pdf")
+async def generate_pdf_endpoint(req: PdfRequest):
+    """Generate a Due Diligence PDF and return it as a download."""
+    try:
+        from pdf_generator import generate_pdf
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"PDF generator not available: {e}")
+
+    report_data = {
+        "lang":      req.lang,
+        "property":  req.property  or {},
+        "catastro":  req.catastro  or {},
+        "registro":  req.registro  or {},
+        "urbanismo": req.urbanismo or {},
+        "analysis":  req.analysis  or {},
+    }
+
+    # Build safe filename
+    addr = (req.property or {}).get("direccion", "due-diligence")
+    safe = "".join(c for c in addr if c.isalnum() or c in " -_")[:40].strip().replace(" ", "_")
+    filename = f"DueDiligence_{safe}_ColasJurist.pdf"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out_path = os.path.join(tmpdir, filename)
+        try:
+            generate_pdf(report_data, out_path)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"PDF generation error: {e}")
+
+        with open(out_path, "rb") as f:
+            pdf_bytes = f.read()
+
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
 
 
 if __name__ == "__main__":
